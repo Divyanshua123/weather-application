@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0">
+
+    <title>SkyCast Pro</title>
+
+    <link rel="preconnect"
+        href="https://fonts.googleapis.com">
+
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+
+    <link rel="stylesheet"
+        href="style.css">
+
+</head>
+
+<body>
+
+    <button id="themeToggle">
+        🌙
+    </button>
+
+    <div class="weather-container">
+
+        <div class="weather-card">
+
+            <div class="top-section">
+
+                <h1 class="app-title">
+                    ☁ SkyCast Pro
+                </h1>
+
+                <p id="date"
+                    class="date"></p>
+
+            </div>
+
+            <div class="search-box">
+
+                <input type="text"
+                    id="cityInput"
+                    placeholder="Search city...">
+
+                <button onclick="getWeather()">
+                    Search
+                </button>
+
+                <button class="location-btn"
+                    onclick="getCurrentLocation()">
+                    📍
+                </button>
+
+                <button class="voice-btn"
+                    onclick="startVoiceSearch()">
+                    🎤
+                </button>
+
+            </div>
+
+            <div id="loader"
+                class="loader d-none">
+            </div>
+
+            <div class="weather-main">
+
+                <div id="city"
+                    class="city-name">
+                    Display Weather
+                </div>
+
+                <img id="weatherIcon"
+                    class="weather-icon d-none"
+                    src=""
+                    alt="Weather">
+
+                <div id="temp"
+                    class="temperature"></div>
+
+                <div id="weather"
+                    class="weather-text"></div>
+
+                <div class="weather-rating">
+                    Status:
+                    <span id="rating"></span>
+                </div>
+
+            </div>
+
+            <div class="weather-details">
+
+                <div class="detail-card">
+                    <span>Humidity</span>
+                    <h5 id="humidity"></h5>
+                </div>
+
+                <div class="detail-card">
+                    <span>Wind</span>
+                    <h5 id="wind"></h5>
+                </div>
+
+                <div class="detail-card">
+                    <span>Country</span>
+                    <h5 id="country"></h5>
+                </div>
+
+                <div class="detail-card">
+                    <span>Feels Like</span>
+                    <h5 id="feelsLike"></h5>
+                </div>
+
+            </div>
+
+            <div class="sun-section">
+
+                <div class="sun-card">
+                    🌅 Sunrise
+                    <p id="sunrise"></p>
+                </div>
+
+                <div class="sun-card">
+                    🌇 Sunset
+                    <p id="sunset"></p>
+                </div>
+
+            </div>
+
+            <div class="recommendation-box">
+
+                <h4>
+                    👕 Clothing Recommendation
+                </h4>
+
+                <p id="clothes"></p>
+
+            </div>
+
+            <div class="aqi-box">
+
+                <h4>
+                    🌫 Air Quality Index
+                </h4>
+
+                <p id="aqi"></p>
+
+            </div>
+
+            <div class="precaution-box">
+
+                <h4>
+                    ⚠ Weather Precaution
+                </h4>
+
+                <p id="precaution"></p>
+
+            </div>
+
+            <div class="recommendation-box">
+
+                <h4>
+                    ✈ Travel Advice
+                </h4>
+
+                <p id="travel"></p>
+
+            </div>
+
+            <div class="forecast-section">
+
+                <h3>
+                    5-Day Forecast
+                </h3>
+
+                <div id="forecastContainer"
+                    class="forecast-container">
+                </div>
+
+            </div>
+
+            <div class="map-box">
+
+                <iframe id="mapFrame"
+                    loading="lazy"
+                    allowfullscreen>
+                </iframe>
+
+            </div>
+
+            <div class="chart-box">
+
+                <canvas id="tempChart"></canvas>
+
+            </div>
+
+            <button onclick="saveFavorite()"
+                class="favorite-btn">
+                ⭐ Save Favorite
+            </button>
+
+            <div class="api-box">
+                Powered by OpenWeatherMap API
+            </div>
+
+        </div>
+
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script src="script.js"></script>
+
+</body>
+</html>
