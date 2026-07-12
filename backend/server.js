@@ -13,6 +13,24 @@ let PORT = parseInt(process.env.PORT, 10) || DEFAULT_PORT;
 
 const API_KEY = process.env.API_KEY;
 
+const fetch =
+  global.fetch ||
+  ((...args) => import("node-fetch").then(({ default: fetch }) => fetch(...args)));
+
+if (!API_KEY) {
+  console.warn("Warning: OPENWEATHER_API_KEY is not set. Weather API calls will fail until the key is provided.");
+}
+
+const requireApiKey = (res) => {
+  if (!API_KEY) {
+    res.status(500).json({
+      message: "Server misconfiguration: missing OpenWeatherMap API key"
+    });
+    return false;
+  }
+  return true;
+};
+
 /* =========================
    WEATHER ROUTE
 ========================= */
