@@ -88,7 +88,7 @@ async function getWeather() {
 
     catch (error) {
 
-        console.log(error);
+        console.error("Weather fetch error:", error);
 
         clearUI();
 
@@ -244,7 +244,7 @@ async function displayForecast(city) {
             await response.json();
 
         if (!response.ok) {
-            throw new Error("Forecast failed");
+            throw new Error(data.message || "Forecast failed");
         }
 
         const container =
@@ -297,7 +297,9 @@ async function displayForecast(city) {
 
     catch (error) {
 
-        console.log(error);
+        console.error("Forecast display error:", error);
+        document.getElementById("forecastContainer").innerHTML =
+            "<p>Unable to load forecast</p>";
     }
 }
 
@@ -316,6 +318,14 @@ async function getAQI(lat, lon) {
 
         const data =
             await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || "Air quality data unavailable");
+        }
+
+        if (!data.air || !data.air.list || !data.air.list[0] || !data.air.list[0].main) {
+            throw new Error("Invalid air quality data structure");
+        }
 
         const aqi =
             data.air.list[0].main.aqi;
@@ -355,7 +365,7 @@ async function getAQI(lat, lon) {
 
     catch (error) {
 
-        console.log(error);
+        console.error("AQI fetch error:", error);
 
         document.getElementById("aqi").innerHTML =
             "Unavailable";
@@ -368,40 +378,44 @@ async function getAQI(lat, lon) {
 
 function drawChart(data) {
 
-    const temps =
-        data.list.slice(0, 8).map(
-            item => item.main.temp
-        );
+    try {
+        const temps =
+            data.list.slice(0, 8).map(
+                item => item.main.temp
+            );
 
-    const labels =
-        data.list.slice(0, 8).map(
-            item => item.dt_txt.split(" ")[1]
-        );
+        const labels =
+            data.list.slice(0, 8).map(
+                item => item.dt_txt.split(" ")[1]
+            );
 
-    if (weatherChart) {
-        weatherChart.destroy();
-    }
+        if (weatherChart) {
+            weatherChart.destroy();
+        }
 
-    weatherChart =
-        new Chart(
-            document.getElementById("tempChart"),
-            {
-                type: "line",
+        weatherChart =
+            new Chart(
+                document.getElementById("tempChart"),
+                {
+                    type: "line",
 
-                data: {
+                    data: {
 
-                    labels,
+                        labels,
 
-                    datasets: [{
-                        label: "Temperature °C",
-                        data: temps,
-                        borderColor: "#60a5fa",
-                        tension: 0.4,
-                        fill: false
-                    }]
+                        datasets: [{
+                            label: "Temperature °C",
+                            data: temps,
+                            borderColor: "#60a5fa",
+                            tension: 0.4,
+                            fill: false
+                        }]
+                    }
                 }
-            }
-        );
+            );
+    } catch (error) {
+        console.error("Chart rendering error:", error);
+    }
 }
 
 /* =========================
@@ -449,6 +463,10 @@ function getCurrentLocation() {
                 const data =
                     await response.json();
 
+                if (!response.ok) {
+                    throw new Error(data.message || "Location weather failed");
+                }
+
                 displayWeather(data);
 
                 displayForecast(data.name);
@@ -459,13 +477,14 @@ function getCurrentLocation() {
 
             catch (error) {
 
-                console.log(error);
+                console.error("Location weather error:", error);
 
-                alert("Location weather failed");
+                alert("Location weather failed: " + error.message);
             }
         },
 
         () => {
+            console.error("Location permission denied");
             alert("Location permission denied");
         }
     );
@@ -483,20 +502,34 @@ function startVoiceSearch() {
         return;
     }
 
-    const recognition =
-        new webkitSpeechRecognition();
+    try {
+        const recognition =
+            new webkitSpeechRecognition();
 
-    recognition.lang = "en-US";
+        recognition.lang = "en-US";
 
-    recognition.onresult = e => {
+        recognition.onresult = e => {
 
-        cityInput.value =
-            e.results[0][0].transcript;
+            if (!e.results || !e.results[0]) {
+                throw new Error("No speech recognized");
+            }
 
-        getWeather();
-    };
+            cityInput.value =
+                e.results[0][0].transcript;
 
-    recognition.start();
+            getWeather();
+        };
+
+        recognition.onerror = error => {
+            console.error("Speech recognition error:", error);
+            alert("Voice search failed: " + error.error);
+        };
+
+        recognition.start();
+    } catch (error) {
+        console.error("Voice search initialization error:", error);
+        alert("Voice search failed");
+    }
 }
 
 /* =========================
