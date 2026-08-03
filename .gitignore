@@ -1,9 +1,42 @@
+# =========================
+# Dependencies
+# =========================
 node_modules/
+backend/node_modules/
+
+# =========================
+# Environment variables
+# NEVER upload these
+# =========================
 .env
 .env.local
 .env.*.local
+backend/.env
+
+# =========================
+# Build files
+# =========================
 dist/
 build/
+
+# =========================
+# Logs
+# =========================
 *.log
+npm-debug.log*
+
+# =========================
+# OS files
+# =========================
 .DS_Store
+Thumbs.db
+
+# =========================
+# VS Code
+# =========================
+.vscode/
+
+# =========================
+# Temporary files
+# =========================
 tempCodeRunnerFile.js
