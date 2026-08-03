@@ -8,7 +8,9 @@
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0">
 
-    <title>SkyCast Pro</title>
+    <title>SkyCast Pro - Weather Application</title>
+
+    <meta name="description" content="SkyCast Pro - Real-time weather forecasting with AI-powered insights">
 
     <link rel="preconnect"
         href="https://fonts.googleapis.com">
@@ -23,7 +25,7 @@
 
 <body>
 
-    <button id="themeToggle">
+    <button id="themeToggle" aria-label="Toggle theme">
         🌙
     </button>
 
@@ -46,26 +48,30 @@
 
                 <input type="text"
                     id="cityInput"
-                    placeholder="Search city...">
+                    placeholder="Search city..."
+                    aria-label="City search input">
 
-                <button onclick="getWeather()">
+                <button onclick="getWeather()" aria-label="Search for weather">
                     Search
                 </button>
 
                 <button class="location-btn"
-                    onclick="getCurrentLocation()">
+                    onclick="getCurrentLocation()"
+                    aria-label="Get weather for current location">
                     📍
                 </button>
 
                 <button class="voice-btn"
-                    onclick="startVoiceSearch()">
+                    onclick="startVoiceSearch()"
+                    aria-label="Search using voice">
                     🎤
                 </button>
 
             </div>
 
             <div id="loader"
-                class="loader d-none">
+                class="loader d-none"
+                aria-label="Loading">
             </div>
 
             <div class="weather-main">
@@ -78,7 +84,7 @@
                 <img id="weatherIcon"
                     class="weather-icon d-none"
                     src=""
-                    alt="Weather">
+                    alt="Weather icon">
 
                 <div id="temp"
                     class="temperature"></div>
@@ -178,7 +184,9 @@
                 </h3>
 
                 <div id="forecastContainer"
-                    class="forecast-container">
+                    class="forecast-container"
+                    role="region"
+                    aria-label="5-day weather forecast">
                 </div>
 
             </div>
@@ -187,19 +195,21 @@
 
                 <iframe id="mapFrame"
                     loading="lazy"
-                    allowfullscreen>
+                    allowfullscreen=""
+                    aria-label="Location map">
                 </iframe>
 
             </div>
 
             <div class="chart-box">
 
-                <canvas id="tempChart"></canvas>
+                <canvas id="tempChart" aria-label="Temperature chart"></canvas>
 
             </div>
 
             <button onclick="saveFavorite()"
-                class="favorite-btn">
+                class="favorite-btn"
+                aria-label="Save city to favorites">
                 ⭐ Save Favorite
             </button>
 
@@ -216,4 +226,5 @@
     <script src="script.js"></script>
 
 </body>
+
 </html>
