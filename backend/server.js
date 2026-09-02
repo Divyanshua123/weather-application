@@ -1,538 +1,943 @@
-require("dotenv").config();
-
 const express = require("express");
 const cors = require("cors");
+const dotenv = require("dotenv");
 const mysql = require("mysql2/promise");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+
+// =========================
+// LOAD ENVIRONMENT VARIABLES
+// =========================
+
+dotenv.config();
+
+// =========================
+// IMPORT ROUTES
+// =========================
+
+const historyRoutes = require("./routes/historyRoutes");
+
+// =========================
+// APP INITIALIZATION
+// =========================
 
 const app = express();
 
-/* =========================================================
-   MIDDLEWARE
-========================================================= */
+const PORT = process.env.PORT || 5000;
 
-app.use(
-  cors({
-    origin: [
-      "http://127.0.0.1:8000",
-      "http://localhost:8000"
-    ]
-  })
-);
+const JWT_SECRET = process.env.JWT_SECRET;
+
+const WEATHER_API_KEY =
+    process.env.WEATHER_API_KEY || process.env.API_KEY;
+
+// =========================
+// ENVIRONMENT CHECK
+// =========================
+
+if (!JWT_SECRET) {
+    console.error("JWT_SECRET is missing in .env");
+    process.exit(1);
+}
+
+if (!WEATHER_API_KEY) {
+    console.error(
+        "WEATHER_API_KEY or API_KEY is missing in .env"
+    );
+    process.exit(1);
+}
+
+// =========================
+// MIDDLEWARE
+// =========================
+
+app.use(cors());
 
 app.use(express.json());
 
-/* =========================================================
-   CONFIGURATION
-========================================================= */
+// =========================
+// MYSQL CONNECTION
+// =========================
 
-const PORT = Number(process.env.PORT) || 5000;
+const pool = mysql.createPool({
+    host: process.env.DB_HOST || "localhost",
+    user: process.env.DB_USER || "root",
+    password: process.env.DB_PASSWORD || "",
+    database: process.env.DB_NAME || "skycast_db",
 
-const API_KEY = process.env.API_KEY;
+    waitForConnections: true,
 
-const DB_HOST = process.env.DB_HOST || "127.0.0.1";
-const DB_PORT = Number(process.env.DB_PORT) || 3306;
-const DB_USER = process.env.DB_USER || "root";
-const DB_PASSWORD = process.env.DB_PASSWORD || "";
-const DB_NAME = process.env.DB_NAME || "weather_app";
+    connectionLimit: 10,
 
-/* =========================================================
-   FETCH
-========================================================= */
+    queueLimit: 0
+});
 
-const fetch =
-  global.fetch ||
-  ((...args) =>
-    import("node-fetch").then(({ default: fetch }) => fetch(...args)));
+// Make database available to routes
+app.locals.db = pool;
 
-/* =========================================================
-   API KEY CHECK
-========================================================= */
+// =========================
+// HISTORY ROUTES
+// =========================
 
-if (!API_KEY) {
-  console.warn(
-    "WARNING: API_KEY is missing from .env. Weather API requests will fail."
-  );
-}
+app.use("/api/history", historyRoutes);
 
-function requireApiKey(res) {
-  if (!API_KEY) {
-    res.status(500).json({
-      message: "Server configuration error: API_KEY is missing"
-    });
-
-    return false;
-  }
-
-  return true;
-}
-
-/* =========================================================
-   MYSQL
-========================================================= */
-
-let pool;
-
-/*
-  This first connection does not select a database.
-  It allows the application to create weather_app automatically.
-*/
-
-async function initializeDatabase() {
-  try {
-    const connection = await mysql.createConnection({
-      host: DB_HOST,
-      port: DB_PORT,
-      user: DB_USER,
-      password: DB_PASSWORD
-    });
-
-    console.log("Connected to MySQL server");
-
-    await connection.query(
-      `CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\``
-    );
-
-    console.log(`Database "${DB_NAME}" is ready`);
-
-    await connection.end();
-
-    /*
-      Create the actual connection pool.
-    */
-
-    pool = mysql.createPool({
-      host: DB_HOST,
-      port: DB_PORT,
-      user: DB_USER,
-      password: DB_PASSWORD,
-      database: DB_NAME,
-
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0
-    });
-
-    /*
-      Create search history table.
-    */
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS search_history (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        city VARCHAR(150) NOT NULL,
-        country VARCHAR(20),
-        temperature DECIMAL(6,2),
-        feels_like DECIMAL(6,2),
-        humidity INT,
-        weather VARCHAR(100),
-        description VARCHAR(255),
-        searched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    console.log("search_history table is ready");
-
-    /*
-      Test the pool.
-    */
-
-    await pool.query("SELECT 1");
-
-    console.log("MySQL database connected successfully");
-
-  } catch (error) {
-    console.error("MySQL initialization failed:");
-    console.error(error.message);
-
-    /*
-      We don't terminate the server here.
-      This lets /health report the database error.
-    */
-  }
-}
-
-/* =========================================================
-   HOME ROUTE
-========================================================= */
+// =========================
+// ROOT ROUTE
+// =========================
 
 app.get("/", (req, res) => {
-  res.json({
-    message: "Weather Application Backend API",
-    status: "running"
-  });
-});
 
-/* =========================================================
-   HEALTH CHECK
-========================================================= */
-
-app.get("/health", async (req, res) => {
-  try {
-    if (!pool) {
-      return res.status(500).json({
-        status: "error",
-        backend: "running",
-        database: "disconnected"
-      });
-    }
-
-    await pool.query("SELECT 1");
-
-    res.status(200).json({
-      status: "ok",
-      backend: "running",
-      database: "connected"
+    res.json({
+        status: "OK",
+        message: "SkyCast Pro backend is running"
     });
 
-  } catch (error) {
-    console.error("Health check failed:", error.message);
-
-    res.status(500).json({
-      status: "error",
-      backend: "running",
-      database: "disconnected",
-      error: error.message
-    });
-  }
 });
 
-/* =========================================================
-   WEATHER ROUTE
+// =========================
+// DATABASE INITIALIZATION
+// =========================
 
-   Example:
-   http://127.0.0.1:5000/weather/Delhi
-========================================================= */
+async function initializeDatabase() {
 
-app.get("/weather/:city", async (req, res) => {
-  if (!requireApiKey(res)) {
-    return;
-  }
+    try {
 
-  const city = req.params.city.trim();
+        const connection = await pool.getConnection();
 
-  console.log("City requested:", city);
+        console.log("Connected to MySQL server");
 
-  try {
-    const url =
-      `https://api.openweathermap.org/data/2.5/weather` +
-      `?q=${encodeURIComponent(city)}` +
-      `&appid=${API_KEY}` +
-      `&units=metric`;
+        // =========================
+        // USERS TABLE
+        // =========================
 
-    const response = await fetch(url);
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
 
-    const data = await response.json();
+                name VARCHAR(100) NOT NULL,
 
-    if (!response.ok) {
-      return res.status(response.status).json({
-        message: data.message || "Unable to retrieve weather"
-      });
-    }
+                email VARCHAR(150) NOT NULL UNIQUE,
 
-    /*
-      Save successful search in MySQL.
-    */
+                password VARCHAR(255) NOT NULL,
 
-    if (pool) {
-      try {
-        await pool.execute(
-          `
-          INSERT INTO search_history
-          (
-            city,
-            country,
-            temperature,
-            feels_like,
-            humidity,
-            weather,
-            description
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-          `,
-          [
-            data.name || city,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
 
-            data.sys?.country || null,
+        console.log("users table is ready");
 
-            data.main?.temp ?? null,
+        // =========================
+        // FAVORITES TABLE
+        // =========================
 
-            data.main?.feels_like ?? null,
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS favorite_cities (
+                id INT AUTO_INCREMENT PRIMARY KEY,
 
-            data.main?.humidity ?? null,
+                user_id INT NOT NULL,
 
-            data.weather?.[0]?.main || null,
+                city VARCHAR(100) NOT NULL,
 
-            data.weather?.[0]?.description || null
-          ]
-        );
+                country VARCHAR(100),
 
-        console.log(`Search saved to MySQL: ${data.name || city}`);
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-      } catch (databaseError) {
-        /*
-          Weather should still work even if history cannot
-          be stored.
-        */
+                FOREIGN KEY (user_id)
+                REFERENCES users(id)
+                ON DELETE CASCADE
+            )
+        `);
+
+        console.log("favorite_cities table is ready");
+
+        // =========================
+        // SEARCH HISTORY TABLE
+        // =========================
+
+        await connection.query(`
+            CREATE TABLE IF NOT EXISTS search_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+
+                user_id INT NOT NULL,
+
+                city VARCHAR(100) NOT NULL,
+
+                searched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY (user_id)
+                REFERENCES users(id)
+                ON DELETE CASCADE
+            )
+        `);
+
+        console.log("search_history table is ready");
+
+        connection.release();
+
+        console.log("MySQL database connected successfully");
+
+    } catch (error) {
 
         console.error(
-          "Unable to save weather search:",
-          databaseError.message
+            "Database initialization failed:"
         );
-      }
+
+        console.error(error.message);
+
+        process.exit(1);
+    }
+}
+
+// =========================
+// JWT AUTHENTICATION
+// =========================
+
+function authenticateToken(req, res, next) {
+
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+
+        return res.status(401).json({
+            message: "Access token required"
+        });
+
     }
 
-    res.json(data);
+    const parts = authHeader.split(" ");
 
-  } catch (error) {
-    console.error("Weather error:", error);
+    if (
+        parts.length !== 2 ||
+        parts[0] !== "Bearer"
+    ) {
 
-    res.status(500).json({
-      message: "Unable to retrieve weather information"
-    });
-  }
-});
+        return res.status(401).json({
+            message: "Invalid authorization header"
+        });
 
-/* =========================================================
-   FORECAST ROUTE
-
-   Example:
-   http://127.0.0.1:5000/forecast/Delhi
-========================================================= */
-
-app.get("/forecast/:city", async (req, res) => {
-  if (!requireApiKey(res)) {
-    return;
-  }
-
-  const city = req.params.city.trim();
-
-  try {
-    const url =
-      `https://api.openweathermap.org/data/2.5/forecast` +
-      `?q=${encodeURIComponent(city)}` +
-      `&appid=${API_KEY}` +
-      `&units=metric`;
-
-    const response = await fetch(url);
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return res.status(response.status).json({
-        message: data.message || "Unable to retrieve forecast"
-      });
     }
 
-    res.json(data);
+    const token = parts[1];
 
-  } catch (error) {
-    console.error("Forecast error:", error);
+    try {
 
-    res.status(500).json({
-      message: "Forecast error"
-    });
-  }
-});
+        const decoded = jwt.verify(
+            token,
+            JWT_SECRET
+        );
 
-/* =========================================================
-   AIR QUALITY ROUTE
+        req.user = decoded;
 
-   Example:
-   /air-quality/28.6139/77.2090
-========================================================= */
+        next();
 
-app.get("/air-quality/:lat/:lon", async (req, res) => {
-  if (!requireApiKey(res)) {
-    return;
-  }
+    } catch (error) {
 
-  const { lat, lon } = req.params;
+        return res.status(403).json({
+            message: "Invalid or expired token"
+        });
 
-  try {
-    const url =
-      `https://api.openweathermap.org/data/2.5/air_pollution` +
-      `?lat=${encodeURIComponent(lat)}` +
-      `&lon=${encodeURIComponent(lon)}` +
-      `&appid=${API_KEY}`;
-
-    const response = await fetch(url);
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      return res.status(response.status).json({
-        message: data.message || "Unable to retrieve air quality"
-      });
     }
+}
 
-    res.json({
-      air: data
-    });
+// =========================
+// REGISTER
+// =========================
 
-  } catch (error) {
-    console.error("AQI error:", error);
+app.post(
+    "/api/auth/register",
+    async (req, res) => {
 
-    res.status(500).json({
-      message: "AQI error"
-    });
-  }
-});
+        try {
 
-/* =========================================================
-   LOCATION WEATHER
+            const {
+                name,
+                email,
+                password
+            } = req.body;
 
-   Example:
-   /weather-location/28.6139/77.2090
-========================================================= */
+            if (
+                !name ||
+                !email ||
+                !password
+            ) {
 
-app.get("/weather-location/:lat/:lon", async (req, res) => {
-  if (!requireApiKey(res)) {
-    return;
-  }
+                return res.status(400).json({
+                    message:
+                        "Name, email and password are required"
+                });
 
-  const { lat, lon } = req.params;
+            }
 
-  try {
-    const url =
-      `https://api.openweathermap.org/data/2.5/weather` +
-      `?lat=${encodeURIComponent(lat)}` +
-      `&lon=${encodeURIComponent(lon)}` +
-      `&appid=${API_KEY}` +
-      `&units=metric`;
+            if (password.length < 6) {
 
-    const response = await fetch(url);
+                return res.status(400).json({
+                    message:
+                        "Password must contain at least 6 characters"
+                });
 
-    const data = await response.json();
+            }
 
-    if (!response.ok) {
-      return res.status(response.status).json({
-        message: data.message || "Unable to retrieve location weather"
-      });
+            const [existingUsers] =
+                await pool.execute(
+                    "SELECT id FROM users WHERE email = ?",
+                    [email]
+                );
+
+            if (existingUsers.length > 0) {
+
+                return res.status(409).json({
+                    message:
+                        "Email already registered"
+                });
+
+            }
+
+            const hashedPassword =
+                await bcrypt.hash(password, 10);
+
+            await pool.execute(
+                `
+                INSERT INTO users
+                (name, email, password)
+                VALUES (?, ?, ?)
+                `,
+                [
+                    name,
+                    email,
+                    hashedPassword
+                ]
+            );
+
+            return res.status(201).json({
+                message:
+                    "Registration successful"
+            });
+
+        } catch (error) {
+
+            console.error(
+                "Registration error:",
+                error
+            );
+
+            return res.status(500).json({
+                message:
+                    "Internal server error"
+            });
+
+        }
+
     }
+);
 
-    res.json(data);
+// =========================
+// LOGIN
+// =========================
 
-  } catch (error) {
-    console.error("Location weather error:", error);
+app.post(
+    "/api/auth/login",
+    async (req, res) => {
 
-    res.status(500).json({
-      message: "Location weather error"
-    });
-  }
-});
+        try {
 
-/* =========================================================
-   SEARCH HISTORY
+            const {
+                email,
+                password
+            } = req.body;
 
-   http://127.0.0.1:5000/history
-========================================================= */
+            if (!email || !password) {
 
-app.get("/history", async (req, res) => {
-  try {
-    if (!pool) {
-      return res.status(503).json({
-        message: "Database is not connected"
-      });
+                return res.status(400).json({
+                    message:
+                        "Email and password are required"
+                });
+
+            }
+
+            const [users] =
+                await pool.execute(
+                    "SELECT * FROM users WHERE email = ?",
+                    [email]
+                );
+
+            if (users.length === 0) {
+
+                return res.status(401).json({
+                    message:
+                        "Invalid email or password"
+                });
+
+            }
+
+            const user = users[0];
+
+            const passwordMatch =
+                await bcrypt.compare(
+                    password,
+                    user.password
+                );
+
+            if (!passwordMatch) {
+
+                return res.status(401).json({
+                    message:
+                        "Invalid email or password"
+                });
+
+            }
+
+            const token = jwt.sign(
+                {
+                    id: user.id,
+                    email: user.email
+                },
+
+                JWT_SECRET,
+
+                {
+                    expiresIn: "1h"
+                }
+            );
+
+            return res.json({
+
+                message:
+                    "Login successful",
+
+                token
+
+            });
+
+        } catch (error) {
+
+            console.error(
+                "Login error:",
+                error
+            );
+
+            return res.status(500).json({
+                message:
+                    "Internal server error"
+            });
+
+        }
+
     }
+);
 
-    const [rows] = await pool.query(`
-      SELECT
-        id,
-        city,
-        country,
-        temperature,
-        feels_like,
-        humidity,
-        weather,
-        description,
-        searched_at
-      FROM search_history
-      ORDER BY searched_at DESC
-      LIMIT 20
-    `);
+// =========================
+// WEATHER
+// =========================
 
-    res.json(rows);
+app.get(
+    "/weather/:city",
+    async (req, res) => {
 
-  } catch (error) {
-    console.error("History error:", error);
+        try {
 
-    res.status(500).json({
-      message: "Unable to retrieve search history"
-    });
-  }
-});
+            const city = req.params.city;
 
-/* =========================================================
-   DELETE SEARCH HISTORY
-========================================================= */
+            const url =
+                `https://api.openweathermap.org/data/2.5/weather` +
+                `?q=${encodeURIComponent(city)}` +
+                `&appid=${WEATHER_API_KEY}` +
+                `&units=metric`;
 
-app.delete("/history", async (req, res) => {
-  try {
-    if (!pool) {
-      return res.status(503).json({
-        message: "Database is not connected"
-      });
+            const response =
+                await fetch(url);
+
+            const data =
+                await response.json();
+
+            if (!response.ok) {
+
+                return res.status(
+                    response.status
+                ).json({
+
+                    message:
+                        data.message ||
+                        "Weather data unavailable"
+
+                });
+
+            }
+
+            res.json(data);
+
+        } catch (error) {
+
+            console.error(
+                "Weather API error:",
+                error
+            );
+
+            res.status(500).json({
+
+                message:
+                    "Unable to fetch weather data"
+
+            });
+
+        }
+
     }
+);
 
-    await pool.query("DELETE FROM search_history");
+// =========================
+// FORECAST
+// =========================
 
-    res.json({
-      message: "Search history cleared successfully"
-    });
+app.get(
+    "/forecast/:city",
+    async (req, res) => {
 
-  } catch (error) {
-    console.error("Delete history error:", error);
+        try {
 
-    res.status(500).json({
-      message: "Unable to clear search history"
-    });
-  }
-});
+            const city = req.params.city;
 
-/* =========================================================
-   404
-========================================================= */
+            const url =
+                `https://api.openweathermap.org/data/2.5/forecast` +
+                `?q=${encodeURIComponent(city)}` +
+                `&appid=${WEATHER_API_KEY}` +
+                `&units=metric`;
 
-app.use((req, res) => {
-  res.status(404).json({
-    message: "API route not found"
-  });
-});
+            const response =
+                await fetch(url);
 
-/* =========================================================
-   START SERVER
-========================================================= */
+            const data =
+                await response.json();
+
+            if (!response.ok) {
+
+                return res.status(
+                    response.status
+                ).json({
+
+                    message:
+                        data.message ||
+                        "Forecast unavailable"
+
+                });
+
+            }
+
+            res.json(data);
+
+        } catch (error) {
+
+            console.error(
+                "Forecast API error:",
+                error
+            );
+
+            res.status(500).json({
+
+                message:
+                    "Unable to fetch forecast"
+
+            });
+
+        }
+
+    }
+);
+
+// =========================
+// WEATHER BY LOCATION
+// =========================
+
+app.get(
+    "/weather-location/:lat/:lon",
+    async (req, res) => {
+
+        try {
+
+            const {
+                lat,
+                lon
+            } = req.params;
+
+            const url =
+                `https://api.openweathermap.org/data/2.5/weather` +
+                `?lat=${encodeURIComponent(lat)}` +
+                `&lon=${encodeURIComponent(lon)}` +
+                `&appid=${WEATHER_API_KEY}` +
+                `&units=metric`;
+
+            const response =
+                await fetch(url);
+
+            const data =
+                await response.json();
+
+            if (!response.ok) {
+
+                return res.status(
+                    response.status
+                ).json({
+
+                    message:
+                        data.message ||
+                        "Location weather unavailable"
+
+                });
+
+            }
+
+            res.json(data);
+
+        } catch (error) {
+
+            console.error(
+                "Location weather error:",
+                error
+            );
+
+            res.status(500).json({
+
+                message:
+                    "Unable to fetch location weather"
+
+            });
+
+        }
+
+    }
+);
+
+// =========================
+// AIR QUALITY
+// =========================
+
+app.get(
+    "/air-quality/:lat/:lon",
+    async (req, res) => {
+
+        try {
+
+            const {
+                lat,
+                lon
+            } = req.params;
+
+            const url =
+                `https://api.openweathermap.org/data/2.5/air_pollution` +
+                `?lat=${encodeURIComponent(lat)}` +
+                `&lon=${encodeURIComponent(lon)}` +
+                `&appid=${WEATHER_API_KEY}`;
+
+            const response =
+                await fetch(url);
+
+            const data =
+                await response.json();
+
+            if (!response.ok) {
+
+                return res.status(
+                    response.status
+                ).json({
+
+                    message:
+                        data.message ||
+                        "Air quality unavailable"
+
+                });
+
+            }
+
+            res.json({
+                air: data
+            });
+
+        } catch (error) {
+
+            console.error(
+                "AQI error:",
+                error
+            );
+
+            res.status(500).json({
+
+                message:
+                    "Unable to fetch air quality"
+
+            });
+
+        }
+
+    }
+);
+
+// =========================
+// FAVORITES - GET
+// =========================
+
+app.get(
+    "/api/favorites",
+    authenticateToken,
+    async (req, res) => {
+
+        try {
+
+            const [rows] =
+                await pool.execute(
+                    `
+                    SELECT
+                        id,
+                        city,
+                        country,
+                        created_at
+                    FROM favorite_cities
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC
+                    `,
+                    [req.user.id]
+                );
+
+            res.json(rows);
+
+        } catch (error) {
+
+            console.error(
+                "Get favorites error:",
+                error
+            );
+
+            res.status(500).json({
+
+                message:
+                    "Unable to load favorites"
+
+            });
+
+        }
+
+    }
+);
+
+// =========================
+// FAVORITES - ADD
+// =========================
+
+app.post(
+    "/api/favorites",
+    authenticateToken,
+    async (req, res) => {
+
+        try {
+
+            const { city } = req.body;
+
+            if (!city) {
+
+                return res.status(400).json({
+
+                    message:
+                        "City is required"
+
+                });
+
+            }
+
+            const [existing] =
+                await pool.execute(
+                    `
+                    SELECT id
+                    FROM favorite_cities
+                    WHERE user_id = ?
+                    AND city = ?
+                    `,
+                    [
+                        req.user.id,
+                        city
+                    ]
+                );
+
+            if (existing.length > 0) {
+
+                return res.status(409).json({
+
+                    message:
+                        "City already in favorites"
+
+                });
+
+            }
+
+            await pool.execute(
+                `
+                INSERT INTO favorite_cities
+                (user_id, city)
+                VALUES (?, ?)
+                `,
+                [
+                    req.user.id,
+                    city
+                ]
+            );
+
+            res.status(201).json({
+
+                message:
+                    "City added to favorites"
+
+            });
+
+        } catch (error) {
+
+            console.error(
+                "Add favorite error:",
+                error
+            );
+
+            res.status(500).json({
+
+                message:
+                    "Unable to save favorite"
+
+            });
+
+        }
+
+    }
+);
+
+// =========================
+// FAVORITES - DELETE
+// =========================
+
+app.delete(
+    "/api/favorites/:id",
+    authenticateToken,
+    async (req, res) => {
+
+        try {
+
+            const { id } = req.params;
+
+            const [result] =
+                await pool.execute(
+                    `
+                    DELETE FROM favorite_cities
+                    WHERE id = ?
+                    AND user_id = ?
+                    `,
+                    [
+                        id,
+                        req.user.id
+                    ]
+                );
+
+            if (result.affectedRows === 0) {
+
+                return res.status(404).json({
+
+                    message:
+                        "Favorite not found"
+
+                });
+
+            }
+
+            res.json({
+
+                message:
+                    "Favorite removed"
+
+            });
+
+        } catch (error) {
+
+            console.error(
+                "Delete favorite error:",
+                error
+            );
+
+            res.status(500).json({
+
+                message:
+                    "Unable to delete favorite"
+
+            });
+
+        }
+
+    }
+);
+
+// =========================
+// HEALTH CHECK
+// =========================
+
+app.get(
+    "/api/health",
+    (req, res) => {
+
+        res.json({
+
+            status: "OK",
+
+            message:
+                "SkyCast Pro backend is running"
+
+        });
+
+    }
+);
+
+// =========================
+// 404 HANDLER
+// =========================
+
+app.use(
+    (req, res) => {
+
+        res.status(404).json({
+
+            message:
+                "Route not found"
+
+        });
+
+    }
+);
+
+// =========================
+// START SERVER
+// =========================
 
 async function startServer() {
-  /*
-    Initialize MySQL first.
-  */
 
-  await initializeDatabase();
+    await initializeDatabase();
 
-  const server = app.listen(PORT, "0.0.0.0", () => {
-    console.log("");
-    console.log("=========================================");
-    console.log(" Weather Application Backend");
-    console.log("=========================================");
-    console.log(`Server:  http://127.0.0.1:${PORT}`);
-    console.log(`Health:  http://127.0.0.1:${PORT}/health`);
-    console.log(`History: http://127.0.0.1:${PORT}/history`);
-    console.log("=========================================");
-  });
+    app.listen(
+        PORT,
+        () => {
 
-  server.on("error", error => {
-    if (error.code === "EADDRINUSE") {
-      console.error(`Port ${PORT} is already in use.`);
-      console.error(
-        "Stop the previous Node server and run npm start again."
-      );
-    } else {
-      console.error("Server error:", error);
-    }
+            console.log("");
+            console.log(
+                "================================"
+            );
 
-    process.exit(1);
-  });
+            console.log(
+                "SkyCast Pro Backend"
+            );
+
+            console.log(
+                `Server running on port ${PORT}`
+            );
+
+            console.log(
+                `http://localhost:${PORT}`
+            );
+
+            console.log(
+                "================================"
+            );
+
+        }
+    );
 }
 
 startServer();

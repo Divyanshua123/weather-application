@@ -1,0 +1,12 @@
+{
+  "scripts": {
+    "start:backend": "cd backend && node server.js",
+    "install:backend": "cd backend && npm install"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "express-rate-limit": "^8.6.2",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.23.2"
+  }
+}
