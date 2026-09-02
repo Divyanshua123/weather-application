@@ -6,19 +6,342 @@ const cityInput =
     document.getElementById("cityInput");
 
 const API_BASE = "http://127.0.0.1:5000";
+const AUTH_TOKEN_KEY = "skycast_token";
+const MESSAGE_TIMEOUT = 4500;
 
 let weatherChart = null;
+let messageTimer = null;
+
+function getAuthToken() {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+}
+
+function setAuthToken(token) {
+    if (token) {
+        localStorage.setItem(AUTH_TOKEN_KEY, token);
+    } else {
+        localStorage.removeItem(AUTH_TOKEN_KEY);
+    }
+}
+
+function getAuthHeaders() {
+    const token = getAuthToken();
+    return token
+        ? { Authorization: `Bearer ${token}` }
+        : {};
+}
+
+function updateAuthUI() {
+    if (!getAuthToken()) {
+        window.location.replace("auth.html");
+    }
+}
+
+function showMessage(message, type = "error") {
+    const messageBox = document.getElementById("messageBox");
+    if (!messageBox) return;
+
+    messageBox.textContent = message;
+    messageBox.classList.remove("d-none", "error", "success");
+    messageBox.classList.add(type === "success" ? "success" : "error");
+
+    clearTimeout(messageTimer);
+    messageTimer = setTimeout(() => {
+        messageBox.classList.add("d-none");
+    }, MESSAGE_TIMEOUT);
+}
+
+function clearMessage() {
+    const messageBox = document.getElementById("messageBox");
+    if (!messageBox) return;
+    messageBox.textContent = "";
+    messageBox.classList.add("d-none");
+}
+
+async function loginUser() {
+    const email = document.getElementById("loginEmail").value.trim();
+    const password = document.getElementById("loginPassword").value.trim();
+
+    if (!email || !password) {
+        showErrorOnce("Please enter email and password.");
+        return;
+    }
+
+    try {
+        showLoader();
+
+        const response = await fetch(`${API_BASE}/api/auth/login`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ email, password })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || "Login failed");
+        }
+
+        setAuthToken(data.token);
+        updateAuthUI();
+        loadFavorites();
+        loadHistory();
+        showErrorOnce("Login successful.");
+    } catch (error) {
+        console.error("Login error:", error);
+        showErrorOnce(error.message);
+    } finally {
+        hideLoader();
+    }
+}
+
+async function registerUser() {
+    const name = document.getElementById("registerName").value.trim();
+    const email = document.getElementById("registerEmail").value.trim();
+    const password = document.getElementById("registerPassword").value.trim();
+
+    if (!name || !email || !password) {
+        showErrorOnce("Please fill name, email, and password.");
+        return;
+    }
+
+    try {
+        showLoader();
+
+        const response = await fetch(`${API_BASE}/api/auth/register`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ name, email, password })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || "Registration failed");
+        }
+
+        showErrorOnce("Registration successful. Please log in.");
+    } catch (error) {
+        console.error("Register error:", error);
+        showErrorOnce(error.message);
+    } finally {
+        hideLoader();
+    }
+}
+
+function logoutUser() {
+    setAuthToken(null);
+    window.location.replace("auth.html");
+}
+
+async function loadFavorites() {
+    const token = getAuthToken();
+    const container = document.getElementById("favoritesList");
+
+    if (!token) {
+        container.innerHTML = "Login to see backend favorites.";
+        return;
+    }
+
+    try {
+        showLoader();
+        const response = await fetch(`${API_BASE}/api/favorites`, {
+            headers: {
+                ...getAuthHeaders(),
+                "Content-Type": "application/json"
+            }
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || "Unable to load favorites");
+        }
+
+        if (data.length === 0) {
+            container.innerHTML = "No favorites saved yet.";
+            return;
+        }
+
+        container.innerHTML = data
+            .map(item => `
+                <div>
+                    ${item.city}${item.country ? `, ${item.country}` : ""}
+                    <button class="small-button" onclick="deleteFavorite(${item.id})">Remove</button>
+                </div>
+            `)
+            .join("");
+    } catch (error) {
+        console.error("Load favorites error:", error);
+        container.innerHTML = error.message;
+    } finally {
+        hideLoader();
+    }
+}
+
+async function deleteFavorite(id) {
+    try {
+        showLoader();
+        const response = await fetch(`${API_BASE}/api/favorites/${id}`, {
+            method: "DELETE",
+            headers: {
+                ...getAuthHeaders(),
+                "Content-Type": "application/json"
+            }
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || "Unable to delete favorite");
+        }
+
+        loadFavorites();
+        showErrorOnce("Favorite removed.");
+    } catch (error) {
+        console.error("Delete favorite error:", error);
+        showErrorOnce(error.message);
+    } finally {
+        hideLoader();
+    }
+}
+
+async function loadHistory() {
+    const token = getAuthToken();
+    const container = document.getElementById("historyList");
+
+    if (!token) {
+        const history = JSON.parse(localStorage.getItem("history")) || [];
+        container.innerHTML = history.length
+            ? history.map(city => `<div>${city}</div>`).join("")
+            : "No history saved yet.";
+        return;
+    }
+
+    try {
+        showLoader();
+        const response = await fetch(`${API_BASE}/api/history`, {
+            headers: getAuthHeaders()
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || "Unable to load history");
+        }
+
+        if (data.length === 0) {
+            container.innerHTML = "No history saved yet.";
+            return;
+        }
+
+        container.innerHTML = data
+            .map(item => `<div>${item.city} <small>${new Date(item.searched_at).toLocaleString()}</small></div>`)
+            .join("");
+    } catch (error) {
+        console.error("Load history error:", error);
+        container.innerHTML = error.message;
+    } finally {
+        hideLoader();
+    }
+}
+
+async function saveHistory(city) {
+    const token = getAuthToken();
+
+    if (!token) {
+        let history = JSON.parse(localStorage.getItem("history")) || [];
+        if (!history.includes(city)) {
+            history.push(city);
+            localStorage.setItem("history", JSON.stringify(history));
+        }
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE}/api/history`, {
+            method: "POST",
+            headers: {
+                ...getAuthHeaders(),
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ city })
+        });
+
+        if (!response.ok) {
+            const data = await response.json();
+            console.error("Save history failed:", data.message || response.statusText);
+        }
+    } catch (error) {
+        console.error("Save history error:", error);
+    }
+}
+
+async function saveFavorite() {
+    const city = document.getElementById("city").innerText;
+
+    if (city === "Display Weather") {
+        showErrorOnce("Search a city first.");
+        return;
+    }
+
+    const token = getAuthToken();
+
+    if (!token) {
+        showErrorOnce("Login to save favorites.");
+        return;
+    }
+
+    try {
+        showLoader();
+        const response = await fetch(`${API_BASE}/api/favorites`, {
+            method: "POST",
+            headers: {
+                ...getAuthHeaders(),
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ city })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || "Unable to save favorite");
+        }
+
+        loadFavorites();
+        showMessage("City saved to favorites.", "success");
+    } catch (error) {
+        console.error("Save favorite error:", error);
+        showErrorOnce(error.message);
+    } finally {
+        hideLoader();
+    }
+}
+
+function initializeUserState() {
+    if (!getAuthToken()) {
+        window.location.replace("auth.html");
+        return;
+    }
+    loadFavorites();
+    loadHistory();
+}
+
+window.addEventListener("DOMContentLoaded", initializeUserState);
 
 /* =========================
    ENTER KEY SEARCH
 ========================= */
 
-cityInput.addEventListener("keypress", e => {
-
-    if (e.key === "Enter") {
-        getWeather();
-    }
-});
+if (cityInput) {
+    cityInput.addEventListener("keypress", e => {
+        if (e.key === "Enter") {
+            getWeather();
+        }
+    });
+}
 
 /* =========================
    DATE
@@ -40,6 +363,29 @@ function updateDate() {
 updateDate();
 
 /* =========================
+   DEDUPED ERROR ALERT
+   Avoid showing the same alert repeatedly
+========================= */
+
+const _lastError = { msg: null, timer: null };
+
+function showErrorOnce(message) {
+
+    if (!message) return;
+
+    // if same message recently shown, ignore
+    if (message === _lastError.msg) return;
+
+    _lastError.msg = message;
+    showMessage(message, "error");
+
+    clearTimeout(_lastError.timer);
+    _lastError.timer = setTimeout(() => {
+        _lastError.msg = null;
+    }, 3000);
+}
+
+/* =========================
    GET WEATHER
 ========================= */
 
@@ -49,8 +395,7 @@ async function getWeather() {
         cityInput.value.trim();
 
     if (!city) {
-
-        alert("Please enter city name");
+        showErrorOnce("Please enter city name.");
         return;
     }
 
@@ -92,7 +437,7 @@ async function getWeather() {
 
         clearUI();
 
-        alert(error.message);
+        showErrorOnce(error.message);
     }
 
     finally {
@@ -438,8 +783,7 @@ function formatTime(unix) {
 function getCurrentLocation() {
 
     if (!navigator.geolocation) {
-
-        alert("Geolocation not supported");
+        showErrorOnce("Geolocation not supported.");
         return;
     }
 
@@ -479,13 +823,13 @@ function getCurrentLocation() {
 
                 console.error("Location weather error:", error);
 
-                alert("Location weather failed: " + error.message);
+                showErrorOnce("Location weather failed: " + error.message);
             }
         },
 
         () => {
             console.error("Location permission denied");
-            alert("Location permission denied");
+            showErrorOnce("Location permission denied");
         }
     );
 }
@@ -497,8 +841,7 @@ function getCurrentLocation() {
 function startVoiceSearch() {
 
     if (!("webkitSpeechRecognition" in window)) {
-
-        alert("Voice search not supported");
+        showErrorOnce("Voice search not supported.");
         return;
     }
 
@@ -522,13 +865,13 @@ function startVoiceSearch() {
 
         recognition.onerror = error => {
             console.error("Speech recognition error:", error);
-            alert("Voice search failed: " + error.error);
+            showErrorOnce("Voice search failed: " + error.error);
         };
 
         recognition.start();
     } catch (error) {
         console.error("Voice search initialization error:", error);
-        alert("Voice search failed");
+        showErrorOnce("Voice search failed");
     }
 }
 
@@ -539,15 +882,15 @@ function startVoiceSearch() {
 const themeToggle =
     document.getElementById("themeToggle");
 
-themeToggle.addEventListener("click", () => {
-
-    document.body.classList.toggle("light-mode");
-
-    themeToggle.innerHTML =
-        document.body.classList.contains("light-mode")
-            ? "☀"
-            : "🌙";
-});
+if (themeToggle) {
+    themeToggle.addEventListener("click", () => {
+        document.body.classList.toggle("light-mode");
+        themeToggle.innerHTML =
+            document.body.classList.contains("light-mode")
+                ? "☀"
+                : "🌙";
+    });
+}
 
 /* =========================
    BACKGROUND
@@ -574,60 +917,6 @@ function updateBackground(weather) {
     }
 }
 
-/* =========================
-   FAVORITES
-========================= */
-
-function saveFavorite() {
-
-    const city =
-        document.getElementById("city").innerHTML;
-
-    if (city === "Display Weather") {
-
-        alert("Search city first");
-        return;
-    }
-
-    let favs =
-        JSON.parse(
-            localStorage.getItem("favorites")
-        ) || [];
-
-    if (!favs.includes(city)) {
-
-        favs.push(city);
-    }
-
-    localStorage.setItem(
-        "favorites",
-        JSON.stringify(favs)
-    );
-
-    alert("City saved");
-}
-
-/* =========================
-   HISTORY
-========================= */
-
-function saveHistory(city) {
-
-    let history =
-        JSON.parse(
-            localStorage.getItem("history")
-        ) || [];
-
-    if (!history.includes(city)) {
-
-        history.push(city);
-    }
-
-    localStorage.setItem(
-        "history",
-        JSON.stringify(history)
-    );
-}
 
 /* =========================
    TRAVEL

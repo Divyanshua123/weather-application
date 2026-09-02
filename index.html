@@ -69,6 +69,11 @@
 
             </div>
 
+            <div class="account-bar">
+                <span>Signed in</span>
+                <button id="logoutButton" onclick="logoutUser()">Logout</button>
+            </div>
+
             <div id="loader"
                 class="loader d-none"
                 aria-label="Loading">
@@ -212,6 +217,28 @@
                 aria-label="Save city to favorites">
                 ⭐ Save Favorite
             </button>
+
+            <div class="favorite-history-section">
+                <div class="favorite-card">
+                    <div class="section-header">
+                        <h4>Favorites</h4>
+                        <button onclick="loadFavorites()">Refresh</button>
+                    </div>
+                    <div id="favoritesList" class="item-list">
+                        No favorites saved yet.
+                    </div>
+                </div>
+
+                <div class="history-card">
+                    <div class="section-header">
+                        <h4>Search History</h4>
+                        <button onclick="loadHistory()">Refresh</button>
+                    </div>
+                    <div id="historyList" class="item-list">
+                        No history saved yet.
+                    </div>
+                </div>
+            </div>
 
             <div class="api-box">
                 Powered by OpenWeatherMap API
